@@ -455,7 +455,7 @@ int main() {
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
     glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
-    GLFWwindow* window = glfwCreateWindow(config.windowWidth, config.windowHeight, "Solar Debug HDR", nullptr, nullptr);
+    GLFWwindow* window = glfwCreateWindow(config.windowWidth, config.windowHeight, "Solar System", nullptr, nullptr);
     if (!window) { glfwTerminate(); return -1; }
     glfwMakeContextCurrent(window);
     glfwSetFramebufferSizeCallback(window, framebuffer_size_callback);
@@ -800,9 +800,6 @@ void main() {
         if (fpsAccum >= 0.5f) {
             int fps = (int)(fpsCount / fpsAccum + 0.5f);
             g_lastFps = fps;
-            char title[64];
-            snprintf(title, sizeof(title), "Solar | FPS: %d", fps);
-            glfwSetWindowTitle(window, title);
             fpsAccum = 0.0f;
             fpsCount = 0;
         }
