@@ -9,6 +9,7 @@ uniform mat4 invProj;
 uniform mat4 proj;
 uniform vec2 screenSize;
 uniform float uTime;  // 时间抖动，打破噪声平铺滑动
+uniform float uNearPlane;  // 动态近平面，用于缩放 SSAO 参数
 
 const int KERNEL_SIZE = 16;
 uniform vec3 samples[16];  // CPU-generated hemisphere kernel
@@ -38,8 +39,10 @@ void main() {
     mat3 TBN = mat3(tangent, bitangent, normal);
 
     float occlusion = 0.0;
-    float radius = 3.5;       // view-space sample radius
-    float bias   = 0.02;
+    // SSAO 参数按近平面缩放：基准 near=0.1 对应 radius=3.5, bias=0.02
+    float scale = max(uNearPlane / 0.1, 0.001);
+    float radius = 3.5 * scale;
+    float bias   = 0.02 * scale;
 
     for (int i = 0; i < KERNEL_SIZE; i++) {
         vec3 sampleOffset = TBN * samples[i];

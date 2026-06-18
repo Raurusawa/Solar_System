@@ -759,7 +759,7 @@ void main() {
         glBindVertexArray(0);
     }
 
-    glm::vec3 sunPos(0.0f);
+    glm::dvec3 sunPos(0.0);
     float sunRadius = 15.0f;
     if (!planets.empty()) { sunPos = planets[0].getPosition(); sunRadius = planets[0].getSize(); }
 
@@ -856,33 +856,36 @@ void main() {
         glm::mat4 viewRot = glm::mat4(glm::mat3(view));  // 仅旋转部分，配合相对坐标 model 使用
 
         // dynamic near plane: 近平面 = 到最近表面距离 × 0.5，实时调整
-        float targetNear = 0.1f;
-        float minDistToSurface = 1e10f;
+        double targetNear = 0.1;
+        double minDistToSurface = 1e10;
+        double nearestBodyRadius = sunRadius;
         for (auto& p : planets) {
-            float distToSurface = glm::length(p.getPosition() - viewPos) - p.getSize();
-            if (distToSurface < 0.0f) distToSurface = 1e-5f;
+            double distToSurface = glm::length(p.getPosition() - viewPosD) - (double)p.getSize();
+            if (distToSurface < 0.0) distToSurface = 1e-5;
             if (distToSurface < minDistToSurface) minDistToSurface = distToSurface;
-            float nearForThis = distToSurface * 0.5f;
+            double nearForThis = distToSurface * 0.5;
             if (nearForThis < targetNear) targetNear = nearForThis;
+            if (p.getSize() < nearestBodyRadius) nearestBodyRadius = p.getSize();
             for (auto& m : p.getMoons()) {
-                float moonDistToSurface = glm::length(m.worldPosition - viewPos) - m.size;
-                if (moonDistToSurface < 0.0f) moonDistToSurface = 1e-5f;
+                double moonDistToSurface = glm::length(m.worldPosition - viewPosD) - (double)m.size;
+                if (moonDistToSurface < 0.0) moonDistToSurface = 1e-5;
                 if (moonDistToSurface < minDistToSurface) minDistToSurface = moonDistToSurface;
-                float moonNear = moonDistToSurface * 0.5f;
+                double moonNear = moonDistToSurface * 0.5;
                 if (moonNear < targetNear) targetNear = moonNear;
+                if (m.size < nearestBodyRadius) nearestBodyRadius = m.size;
             }
         }
-        // 下界 0.01：防止 near/far 比过大导致深度缓冲精度崩溃
-        // (1e-5 / 80000 = 1.25e-10, 太阳 z_ndc ~ 0.99999998, 与 clear depth=1.0 仅差 ~1.5e-8,
-        //  GL_DEPTH_COMPONENT24 分辨率 ~6e-8/LSB, 导致太阳片段随机被 GL_LESS 丢弃，画面明暗闪烁)
-        if (targetNear < 0.01f) targetNear = 0.01f;
-        float dynamicNear = targetNear;  // 实时，无平滑延迟
+        // 下界: nearestBodyRadius * 0.001，但自适应缩放 ——
+        // minDistToSurface * 1e-4 确保近平面永不超过到最近表面距离的万分之一，
+        // 防止 tiny 天体（火卫一 size=0.00056）在相机贴脸时被近平面整体裁掉
+        double absFloor = glm::max(nearestBodyRadius * 1e-3, minDistToSurface * 1e-4);
+        if (targetNear < absFloor) targetNear = absFloor;
+        float dynamicNear = (float)targetNear;
 
-        // dynamic far plane: 根据到最近表面的距离调整，下界 80000，上界 200000
-        // 上界防止 far/near 比过大导致远距离深度精度崩溃
-        const float BASE_FAR = 80000.0f;
+        // dynamic far plane: 根据到最近表面的距离调整，下界 20000，上界 200000
+        const float BASE_FAR = 20000.0f;
         const float MAX_FAR  = 200000.0f;
-        float dynamicFar = glm::clamp(minDistToSurface * 10.0f, BASE_FAR, MAX_FAR);
+        float dynamicFar = glm::clamp((float)minDistToSurface * 10.0f, BASE_FAR, MAX_FAR);
 
         glm::mat4 proj = glm::perspective(glm::radians(camera.getFov()),
                                           (float)g_screenWidth / g_screenHeight,
@@ -903,7 +906,7 @@ void main() {
             auto lod = sphereLOD.levels[0];
             for (auto& p : planets) {
                 if (p.isSun()) {
-                    p.drawEmissive(sunShader, lod.VAO, lod.indexCount, view, viewRot, proj, viewPos, 10.0f);
+                    p.drawEmissive(sunShader, lod.VAO, lod.indexCount, view, viewRot, proj, viewPosD, 10.0f);
                 }
             }
         }
@@ -914,9 +917,9 @@ void main() {
         // 行星：从太阳接收光照，每行星按距离动态选 LOD
         for (auto& p : planets) {
             if (!p.isSun()) {
-                float dist = glm::length(p.getPosition() - viewPos);
+                float dist = glm::length(glm::vec3(p.getPosition() - viewPosD));
                 auto lod = selectLOD(sphereLOD, dist, p.getSize(), config.cameraFov, g_screenHeight);
-                p.draw(planetShader, lod.VAO, lod.indexCount, view, viewRot, proj, viewPos, lightIntensity, sunRadius);
+                p.draw(planetShader, lod.VAO, lod.indexCount, view, viewRot, proj, viewPosD, lightIntensity, sunRadius);
             }
         }
         checkGLError("planet draw");
@@ -926,7 +929,9 @@ void main() {
         glUniformMatrix4fv(glGetUniformLocation(planetShader, "view"), 1, GL_FALSE, glm::value_ptr(view));
         glUniformMatrix4fv(glGetUniformLocation(planetShader, "viewRot"), 1, GL_FALSE, glm::value_ptr(viewRot));
         glUniformMatrix4fv(glGetUniformLocation(planetShader, "projection"), 1, GL_FALSE, glm::value_ptr(proj));
-        glUniform3fv(glGetUniformLocation(planetShader, "viewPos"), 1, glm::value_ptr(viewPos));
+        // sunRelative = sunCenter - cameraPos（double 精度 CPU 计算 → vec3）
+        glUniform3fv(glGetUniformLocation(planetShader, "sunRelative"), 1,
+                     glm::value_ptr(glm::vec3(sunPos - viewPosD)));
         glUniform1f(glGetUniformLocation(planetShader, "lightIntensity"), lightIntensity);
         glUniform1f(glGetUniformLocation(planetShader, "sunRadius"), sunRadius);
         glUniform1f(glGetUniformLocation(planetShader, "roughness"), 0.8f);
@@ -949,30 +954,30 @@ void main() {
                 // 行星遮挡投影检测 (ray-sphere)
                 float shadowFactor = 1.0f;
                 {
-                    glm::vec3 toSun = sunPos - m.worldPosition;
-                    float distToSun = glm::length(toSun);
-                    glm::vec3 sunDir = toSun / distToSun;
+                    glm::dvec3 toSun = sunPos - (glm::dvec3)m.worldPosition;
+                    double distToSun = glm::length(toSun);
+                    glm::dvec3 sunDir = toSun / distToSun;
                     for (auto& occluder : planets) {
                         if (occluder.isSun()) continue;
-                        glm::vec3 toPlanet = occluder.getPosition() - m.worldPosition;
-                        float t = glm::dot(toPlanet, sunDir);
-                        if (t < 0.0f || t > distToSun) continue;  // 在卫星后面或太阳后面
-                        float d2 = glm::dot(toPlanet, toPlanet) - t * t;
-                        float r = occluder.getSize();
+                        glm::dvec3 toPlanet = occluder.getPosition() - (glm::dvec3)m.worldPosition;
+                        double t = glm::dot(toPlanet, sunDir);
+                        if (t < 0.0 || t > distToSun) continue;
+                        double d2 = glm::dot(toPlanet, toPlanet) - t * t;
+                        double r = (double)occluder.getSize();
                         if (d2 < r * r) { shadowFactor = 0.0f; break; }
                     }
                 }
                 // 判断是否为 sub-pixel：屏幕空间半径 < 0.5 像素
-                float dist = glm::length(m.worldPosition - viewPos);
+                float dist = glm::length(glm::vec3(m.worldPosition - viewPosD));
                 float angularRadius = atan(m.size / dist);
                 float fovy = glm::radians(config.cameraFov);
                 float pixelRadius = angularRadius * g_screenHeight / (2.0f * tan(fovy / 2.0f));
 
                 glUniform1f(glGetUniformLocation(planetShader, "uShadowFactor"), shadowFactor);
                 if (pixelRadius < 0.5f && !g_wireframe) {
-                    // Sub-pixel：用 GL_POINTS 渲染为 1 像素点（线框模式下无意义，走正常球体）
+                    // Sub-pixel：用 GL_POINTS 渲染为 1 像素点
                     glPointSize(1.0f);
-                    glm::mat4 model = glm::translate(glm::mat4(1.0f), m.worldPosition);
+                    glm::mat4 model = glm::translate(glm::mat4(1.0f), glm::vec3(m.worldPosition));
                     glUniformMatrix4fv(glGetUniformLocation(planetShader, "model"), 1, GL_FALSE, glm::value_ptr(model));
                     glBindVertexArray(pointVAO);
                     glDrawArrays(GL_POINTS, 0, 1);
@@ -983,10 +988,9 @@ void main() {
                     if (m.size < 0.01f) {
                         lod = { sphereLOD.levels[0].VAO, sphereLOD.levels[0].indexCount };
                     }
-                    glm::mat4 model = glm::translate(glm::mat4(1.0f), m.worldPosition - viewPos);
+                    glm::mat4 model = glm::translate(glm::mat4(1.0f), glm::vec3(m.worldPosition - viewPosD));
                     model = glm::scale(model, glm::vec3(m.size));
                     glUniformMatrix4fv(glGetUniformLocation(planetShader, "model"), 1, GL_FALSE, glm::value_ptr(model));
-                    glUniform3fv(glGetUniformLocation(planetShader, "cameraPos"), 1, glm::value_ptr(viewPos));
                     glBindVertexArray(lod.VAO);
                     glDrawElements(GL_TRIANGLES, lod.indexCount, GL_UNSIGNED_INT, 0);
                 }
@@ -1010,16 +1014,16 @@ void main() {
                 if (p.getName() == "venus")  atmosScale = 1.20f;
                 if (p.getName() == "mars")   atmosScale = 1.10f;
                 float atmosR = pSize * atmosScale;
-                glm::mat4 atmosM = glm::translate(glm::mat4(1.0f), p.getPosition() - viewPos);
+                glm::mat4 atmosM = glm::translate(glm::mat4(1.0f), glm::vec3(p.getPosition() - viewPosD));
                 atmosM = glm::scale(atmosM, glm::vec3(atmosR));
                 glUniformMatrix4fv(glGetUniformLocation(atmosphereShader, "model"), 1, GL_FALSE, glm::value_ptr(atmosM));
                 glUniformMatrix4fv(glGetUniformLocation(atmosphereShader, "viewRot"), 1, GL_FALSE, glm::value_ptr(viewRot));
                 glUniformMatrix4fv(glGetUniformLocation(atmosphereShader, "projection"), 1, GL_FALSE, glm::value_ptr(proj));
                 glUniform3fv(glGetUniformLocation(atmosphereShader, "cameraPos"), 1, glm::value_ptr(viewPos));
-                glUniform3fv(glGetUniformLocation(atmosphereShader, "planetCenter"), 1, glm::value_ptr(p.getPosition()));
+                glUniform3fv(glGetUniformLocation(atmosphereShader, "planetCenter"), 1, glm::value_ptr(glm::vec3(p.getPosition())));
                 glUniform1f(glGetUniformLocation(atmosphereShader, "planetRadius"), pSize);
                 glUniform1f(glGetUniformLocation(atmosphereShader, "atmosphereRadius"), atmosR);
-                glm::vec3 sunDN = glm::normalize(sunPos - p.getPosition());
+                glm::vec3 sunDN = glm::normalize(glm::vec3(sunPos - p.getPosition()));
                 glUniform3fv(glGetUniformLocation(atmosphereShader, "sunDir"), 1, glm::value_ptr(sunDN));
                 // Per-planet atmosphere scattering parameters
                 glm::vec3 rayleighCol, mieCol;
@@ -1051,7 +1055,7 @@ void main() {
                 glUniform1f(glGetUniformLocation(atmosphereShader, "uDensityFalloff"),  densityFO);
                 glUniform1f(glGetUniformLocation(atmosphereShader, "uRayleighStrength"), rayleighStr);
                 glUniform1f(glGetUniformLocation(atmosphereShader, "uMieStrength"),     mieStr);
-                float dist = glm::length(p.getPosition() - viewPos);
+                float dist = glm::length(glm::vec3(p.getPosition() - viewPosD));
                 auto lod = selectLOD(sphereLOD, dist, atmosR, config.cameraFov, g_screenHeight);
                 glBindVertexArray(lod.VAO);
                 glDrawElements(GL_TRIANGLES, lod.indexCount, GL_UNSIGNED_INT, 0);
@@ -1122,7 +1126,7 @@ void main() {
                 auto lod = sphereLOD.levels[0];
                 for (auto& p : planets) {
                     if (p.isSun()) {
-                        p.drawEmissive(sunShader, lod.VAO, lod.indexCount, view, viewRot, proj, viewPos, 10.0f);
+                        p.drawEmissive(sunShader, lod.VAO, lod.indexCount, view, viewRot, proj, viewPosD, 10.0f);
                     }
                 }
             }
@@ -1159,6 +1163,7 @@ void main() {
             glUniform3fv(glGetUniformLocation(ssaoShader, name.c_str()), 1, glm::value_ptr(ssaoKernel[i]));
         }
         glUniform1f(glGetUniformLocation(ssaoShader, "uTime"), currentTime);
+        glUniform1f(glGetUniformLocation(ssaoShader, "uNearPlane"), dynamicNear);
         glBindVertexArray(quadVAO);
         glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
         checkGLError("SSAO pass");
@@ -1249,14 +1254,14 @@ void main() {
             float fovY = glm::radians(camera.getFov());
             for (auto& p : planets) {
                 if (p.isSun() || discCount >= 64) continue;
-                glm::vec3 pp = p.getPosition();
-                glm::vec3 ts = sunPos - pp;
-                glm::vec3 tc = viewPos - pp;
-                if (glm::dot(ts, tc) >= 0.0f) continue;
-                glm::vec4 cl = proj * view * glm::vec4(pp, 1.0f);
+                glm::dvec3 pp = p.getPosition();
+                glm::dvec3 ts = sunPos - pp;
+                glm::dvec3 tc = viewPosD - pp;
+                if (glm::dot(ts, tc) >= 0.0) continue;
+                glm::vec4 cl = proj * view * glm::vec4(glm::vec3(pp), 1.0f);
                 if (cl.w <= 0.0f) continue;
                 glm::vec3 nd = glm::vec3(cl) / cl.w;
-                float dp = glm::length(pp - viewPos);
+                float dp = glm::length(glm::vec3(pp - viewPosD));
                 float bs = p.hasAtmosphere() ? p.getSize() * 1.15f : p.getSize();
                 float ar = glm::atan(bs / dp);
                 float nr = glm::tan(ar) / glm::tan(fovY * 0.5f);
@@ -1265,14 +1270,14 @@ void main() {
             for (auto& p : planets) {
                 for (auto& m : p.getMoons()) {
                     if (discCount >= 64) break;
-                    glm::vec3 mp = m.worldPosition;
-                    glm::vec3 ts = sunPos - mp;
-                    glm::vec3 tc = viewPos - mp;
-                    if (glm::dot(ts, tc) >= 0.0f) continue;
-                    glm::vec4 cl = proj * view * glm::vec4(mp, 1.0f);
+                    glm::dvec3 mp = m.worldPosition;
+                    glm::dvec3 ts = sunPos - mp;
+                    glm::dvec3 tc = viewPosD - mp;
+                    if (glm::dot(ts, tc) >= 0.0) continue;
+                    glm::vec4 cl = proj * view * glm::vec4(glm::vec3(mp), 1.0f);
                     if (cl.w <= 0.0f) continue;
                     glm::vec3 nd = glm::vec3(cl) / cl.w;
-                    float dm = glm::length(mp - viewPos);
+                    float dm = glm::length(glm::vec3(mp - viewPosD));
                     float ar = glm::atan(m.size / dm);
                     float nr = glm::tan(ar) / glm::tan(fovY * 0.5f);
                     discs[discCount++] = {(nd.x + 1.0f) * 0.5f, (nd.y + 1.0f) * 0.5f, nr * 0.5f};
@@ -1316,7 +1321,7 @@ void main() {
 
         // 日冕强度：按太阳 disc 屏幕内可见比例缩放（基于可见中心，不是太阳中心NDC）
         float actualCoronaIntensity = coronaIntensity * screenFrac;
-        float ssaoDistanceFactor = glm::smoothstep(0.5f, 3.0f, minDistToSurface);
+        float ssaoDistanceFactor = glm::smoothstep(0.5f, 3.0f, (float)minDistToSurface);
         float effectiveSSAO = ssaoStrength * ssaoDistanceFactor;
         glUniform1f(glGetUniformLocation(compositeShader, "uSSAOStrength"), effectiveSSAO);
         glUniform2f(glGetUniformLocation(compositeShader, "uSunPos"), sunScreenX, sunScreenY);
@@ -1338,21 +1343,21 @@ void main() {
             for (auto& p : planets) {
                 if (p.isSun()) continue;
                 if (eclipseCount >= 32) break;
-                glm::vec3 planetPos = p.getPosition();
-                glm::vec3 toSun    = sunPos - planetPos;
-                glm::vec3 toCamera = viewPos - planetPos;
-                glm::vec4 clip = proj * view * glm::vec4(planetPos, 1.0f);
+                glm::dvec3 planetPos = p.getPosition();
+                glm::dvec3 toSun    = sunPos - planetPos;
+                glm::dvec3 toCamera = viewPosD - planetPos;
+                glm::vec4 clip = proj * view * glm::vec4(glm::vec3(planetPos), 1.0f);
                 if (clip.w <= 0.0f) continue;
                 glm::vec3 ndc = glm::vec3(clip) / clip.w;
                 if (abs(ndc.x) > 1.2f || abs(ndc.y) > 1.2f) continue;  // 屏外跳过
-                float distToPlanet = glm::length(planetPos - viewPos);
+                float distToPlanet = glm::length(glm::vec3(planetPos - viewPosD));
                 float bodySize = p.hasAtmosphere() ? p.getSize() * 1.15f : p.getSize();
                 float angRadius = glm::atan(bodySize / distToPlanet);
                 float ndcRadius = glm::tan(angRadius) / glm::tan(fovY * 0.5f);
                 glUniform2f(centerLoc + eclipseCount, ndc.x, ndc.y);
                 glUniform1f(radiusLoc + eclipseCount, ndcRadius);
                 // rim glow 仅大气凌日行星：太阳在行星背后 + 行星有大气层
-                bool isTransit = (glm::dot(toSun, toCamera) < 0.0f);
+                bool isTransit = (glm::dot(toSun, toCamera) < 0.0);
                 glUniform1i(rimGlowLoc + eclipseCount, (isTransit && p.hasAtmosphere()) ? 1 : 0);
                 eclipseCount++;
             }
@@ -1360,12 +1365,12 @@ void main() {
             for (auto& p : planets) {
                 for (auto& m : p.getMoons()) {
                     if (eclipseCount >= 32) break;
-                    glm::vec3 moonPos = m.worldPosition;
-                    glm::vec4 clip = proj * view * glm::vec4(moonPos, 1.0f);
+                    glm::dvec3 moonPos = m.worldPosition;
+                    glm::vec4 clip = proj * view * glm::vec4(glm::vec3(moonPos), 1.0f);
                     if (clip.w <= 0.0f) continue;
                     glm::vec3 ndc = glm::vec3(clip) / clip.w;
                     if (abs(ndc.x) > 1.2f || abs(ndc.y) > 1.2f) continue;
-                    float distToMoon = glm::length(moonPos - viewPos);
+                    float distToMoon = glm::length(glm::vec3(moonPos - viewPosD));
                     float angRadius = glm::atan(m.size / distToMoon);
                     float ndcRadius = glm::tan(angRadius) / glm::tan(fovY * 0.5f);
                     ndcRadius *= 1.08f;
@@ -1519,8 +1524,8 @@ void main() {
             for (auto& p : planets) {
                 if (p.isSun()) continue;
 
-                glm::vec3 planetPos = p.getPosition();
-                glm::vec4 clip = proj * view * glm::vec4(planetPos, 1.0f);
+                glm::dvec3 planetPos = p.getPosition();
+                glm::vec4 clip = proj * view * glm::vec4(glm::vec3(planetPos), 1.0f);
                 if (clip.w <= 0.0f) continue;  // 相机背后
 
                 glm::vec3 ndc = glm::vec3(clip) / clip.w;
@@ -1538,15 +1543,15 @@ void main() {
                 }
 
                 // 屏幕投影像素半径
-                float distToPlanet = glm::length(planetPos - viewPos);
+                float distToPlanet = glm::length(glm::vec3(planetPos - viewPosD));
                 float angRadius = glm::atan(p.getSize() / distToPlanet);
                 float ndcRadius = glm::tan(angRadius) / glm::tan(fovY * 0.5f);
                 float pixelRadius = ndcRadius * 0.5f * screenHeight;
 
                 // 暗面检测：相机在行星暗面时不渲染辉光
-                glm::vec3 toSun    = sunPos - planetPos;
-                glm::vec3 toCamera = viewPos - planetPos;
-                if (glm::dot(toSun, toCamera) < 0.0f) continue;
+                glm::dvec3 toSun    = sunPos - planetPos;
+                glm::dvec3 toCamera = viewPosD - planetPos;
+                if (glm::dot(toSun, toCamera) < 0.0) continue;
 
                 // < 20px 的行星加光晕（覆盖中远距离）
                 if (pixelRadius > 20.0f) continue;

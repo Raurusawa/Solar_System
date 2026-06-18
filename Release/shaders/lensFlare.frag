@@ -7,6 +7,7 @@ uniform float uSunVisible;
 uniform float uSunRadius;
 uniform float uIntensity;
 uniform float uAspectRatio;
+uniform float uAverageEmissive;  // CPU EMA 平滑，消除逐帧跳变
 
 const int MAX_ECLIPSE_PLANETS = 32;
 uniform int   uEclipseCount;
@@ -15,26 +16,30 @@ uniform float uEclipseRadius[MAX_ECLIPSE_PLANETS];
 
 uniform sampler2D uSunEmissive;
 
-const int N_EMITTERS = 16;
+const int N_MIN = 8;
+const int N_MAX = 64;
 
 void main() {
     vec2 uv = TexCoords;
     vec3 flare = vec3(0.0);
     int  emitterCount = 0;
-    vec3 emissiveSum = vec3(0.0);
 
     float r = max(uSunRadius, 0.0001);
-    for (int s = 0; s < N_EMITTERS; s++) {
+    int activeN = int(clamp(r * 6000.0, float(N_MIN), float(N_MAX)));
+    float stableEm = uAverageEmissive;
+
+    for (int s = 0; s < N_MAX; s++) {
+        if (s >= activeN) break;
         float phi   = 2.399963 * float(s);
-        float rFrac = sqrt((float(s) + 0.5) / float(N_EMITTERS));
+        float rFrac = sqrt((float(s) + 0.5) / float(activeN));
         vec2  sampleUV = uSunPos + r * vec2(cos(phi), sin(phi)) * rFrac;
 
+        // 仅用原始采样做遮挡检测，亮度用 CPU EMA 平滑值
         vec3 emissive = texture(uSunEmissive, sampleUV).rgb;
         float em = max(max(emissive.r, emissive.g), emissive.b);
         if (em < 0.01) continue;
 
         emitterCount++;
-        emissiveSum += emissive;
 
         vec2 toSample = uv - sampleUV;
         toSample.x *= uAspectRatio;
@@ -43,7 +48,7 @@ void main() {
         float glow = 1.0 / (1.0 + nd * nd * 1.5);
         vec3 glowCol = mix(vec3(1.0, 0.28, 0.04), vec3(1.0, 0.92, 0.60),
                            1.0 / (1.0 + nd * 0.7));
-        flare += glowCol * glow * 1.1 * em;
+        flare += glowCol * glow * 1.1 * stableEm;
 
         float pointness = 1.0 / (1.0 + r / 0.02);
         float streakE  = pointness * 0.5;
@@ -57,13 +62,12 @@ void main() {
         float h90 = exp(-dx * dx / (2.0 * shThin * shThin))
                   * exp(-dy * dy / (2.0 * shLen * shLen));
         vec3 streakCol = mix(vec3(1.0,0.82,0.45), vec3(0.35,0.55,1.0), 0.3);
-        flare += streakCol * (h0 + h90) * streakE * em;
+        flare += streakCol * (h0 + h90) * streakE * stableEm;
     }
 
     if (emitterCount == 0) { FragColor = vec4(0.0); return; }
 
-    vec3 avgEmissive = emissiveSum / float(emitterCount);
-    float avgEm = max(max(avgEmissive.r, avgEmissive.g), avgEmissive.b);
+    // Ghosts: anti-sun 方向 5 个鬼影，亮度也用 EMA 平滑值
     {
         vec2 centerDir = uSunPos - vec2(0.5);
         float cDist = max(length(centerDir), 0.001);
@@ -80,10 +84,10 @@ void main() {
             float gs = max(cDist * (0.28 + float(i)*0.12), 0.006 + float(i)*0.002);
             float gh = smoothstep(gs * 1.35, gs * 0.65, abs(gv.x))
                      * smoothstep(gs * 1.35, gs * 0.65, abs(gv.y));
-            flare += gCol[i] * gh * (0.35 - float(i)*0.05) * avgEm;
+            flare += gCol[i] * gh * (0.35 - float(i)*0.05) * stableEm;
         }
     }
 
-    flare = flare / float(N_EMITTERS);
+    flare = flare / float(activeN);
     FragColor = vec4(flare * uIntensity, 1.0);
 }

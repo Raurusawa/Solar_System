@@ -8,7 +8,6 @@ in vec3 ViewNormal;
 in vec2 TexCoord;
 
 uniform sampler2D textureSampler;
-uniform vec3  viewPos;
 uniform float roughness;
 uniform float metallic;
 uniform float lightIntensity;
@@ -16,9 +15,9 @@ uniform float sunRadius;       // 太阳世界空间半径
 uniform bool  hasAtmosphere;
 uniform vec3  uBaseColor;      // 基础颜色倍增 (行星=vec3(1.0), 卫星=实际颜色)
 uniform float uShadowFactor;   // 行星遮挡投影 (1.0=全亮, 0.0=全影)
+uniform vec3  sunRelative;     // sunCenter - cameraPos (double精度CPU计算)
 
 const float PI = 3.14159265359;
-const vec3  sunCenter = vec3(0.0);
 
 // ========== PBR GGX ==========
 vec3 fresnelSchlick(float cosTheta, vec3 F0) {
@@ -46,11 +45,13 @@ void main() {
     vec3 albedo = texture(textureSampler, TexCoord).rgb * uBaseColor;
 
     vec3 N = normalize(Normal);
-    vec3 V = normalize(viewPos - FragPos);
+    // FragPos 是相机相对坐标，相机即原点，V = normalize((0,0,0) - FragPos)
+    vec3 V = normalize(-FragPos);
 
-    // 太阳在原点
-    vec3 L = normalize(sunCenter - FragPos);
-    float distToSun = length(sunCenter - FragPos);
+    // 太阳方向：sunRelative = sunCenter - cameraPos (double精度 CPU计算)
+    // L = (sunCenter - cameraPos) - FragPos = sunRelative - FragPos
+    vec3  L = normalize(sunRelative - FragPos);
+    float distToSun = length(sunRelative - FragPos);
 
     // 太阳角半径（弧度）
     float angularRadius = atan(sunRadius / distToSun);
@@ -71,7 +72,7 @@ void main() {
     vec3 H;
     if (NdotL_center > 0.0) {
         vec3 R = reflect(-L, N);
-        vec3 repPoint = sunCenter + normalize(R) * sunRadius;
+        vec3 repPoint = sunRelative + normalize(R) * sunRadius;
         vec3 Lrep = normalize(repPoint - FragPos);
         H = normalize(V + Lrep);
     } else {

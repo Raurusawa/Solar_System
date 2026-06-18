@@ -11,7 +11,7 @@ struct Moon {
     float size;
     glm::vec3 color;            // fallback 颜色
     unsigned int textureID = 0; // 纹理（0 = 使用 fallback 颜色）
-    glm::vec3 worldPosition;    // 每帧更新
+    glm::dvec3 worldPosition;    // 每帧更新 (double 避免远距离浮点抽动)
 };
 
 class Planet {
@@ -33,17 +33,17 @@ public:
 
     void draw(unsigned int shaderProgram, unsigned int sphereVAO, int indexCount,
               const glm::mat4& view, const glm::mat4& viewRot, const glm::mat4& projection,
-              const glm::vec3& viewPos, float lightIntensity, float sunRadius);
+              const glm::dvec3& viewPos, float lightIntensity, float sunRadius);
 
     void drawEmissive(unsigned int shader, unsigned int sphereVAO, int indexCount,
                       const glm::mat4& view, const glm::mat4& viewRot, const glm::mat4& projection,
-                      const glm::vec3& viewPos, float sunIntensity);
+                      const glm::dvec3& viewPos, float sunIntensity);
 
     void drawSimple(unsigned int shader, unsigned int sphereVAO, int indexCount,
                     const glm::mat4& view, const glm::mat4& projection,
                     const glm::vec3& color);
 
-    glm::vec3 getPosition() const { return worldPosition; }
+    glm::dvec3 getPosition() const { return worldPosition; }
     float     getSize()     const { return size; }
     bool      isSun()          const { return isSunFlag; }
     bool      hasAtmosphere() const { return m_hasAtmosphere; }
@@ -68,7 +68,7 @@ private:
     float metallic;
     bool  isSunFlag;
     bool  m_hasAtmosphere;
-    glm::vec3 worldPosition;
+    glm::dvec3 worldPosition;
     float orbitAngle;
     float rotationAngle;
 

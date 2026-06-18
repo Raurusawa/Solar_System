@@ -8,12 +8,12 @@ in vec3 ViewNormal;
 
 uniform vec3 uSunColor;
 uniform float uSunIntensity;
-uniform vec3 viewPos;
 
 void main() {
     // 太阳每个面独立自发光
     vec3 N = normalize(Normal);
-    vec3 V = normalize(viewPos - FragPos);
+    // FragPos 是相机相对坐标，相机即原点
+    vec3 V = normalize(-FragPos);
     float mu = max(dot(N, V), 0.0);
 
     // Limb darkening (quadratic law): 太阳边缘暗、中心亮

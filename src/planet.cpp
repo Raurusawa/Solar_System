@@ -70,27 +70,27 @@ void Planet::update(double simulationTime) {
         double nu = 2.0 * atan2(sqrt_1pe * sin(E * 0.5), sqrt_1me * cos(E * 0.5));
 
         // 5. 日心距离: r = a * (1 - e * cos(E))
-        float r = orbitRadius * (float)(1.0 - e * cosE);
+        double r = orbitRadius * (1.0 - e * cosE);
 
         // 6. 天体力学标准旋转: 近日点幅角 ω → 倾角 i → 升交点黄经 Ω
         //    映射: 标准天文坐标 (XY=黄道面, Z=北) → 引擎坐标 (XZ=黄道面, Y=上)
-        float w = m_argumentOfPeriapsis * deg2rad;
-        float i = m_inclination * deg2rad;
-        float O = m_longitudeAscendingNode * deg2rad;
-        float cosI = cos(i), sinI = sin(i);
-        float cosO = cos(O), sinO = sin(O);
+        double w = m_argumentOfPeriapsis * deg2rad;
+        double i = m_inclination * deg2rad;
+        double O = m_longitudeAscendingNode * deg2rad;
+        double cosI = cos(i), sinI = sin(i);
+        double cosO = cos(O), sinO = sin(O);
 
         // 参数纬度 u = nu + ω
-        float u = nu + w;
-        float cosU = cos(u), sinU = sin(u);
+        double u = nu + w;
+        double cosU = cos(u), sinU = sin(u);
 
         // 标准天文坐标 (ecliptic: XY=面, Z=北)
-        float x_ecl = r * (cosU * cosO - sinU * sinO * cosI);
-        float y_ecl = r * (cosU * sinO + sinU * cosO * cosI);
-        float z_ecl = r * sinU * sinI;
+        double x_ecl = r * (cosU * cosO - sinU * sinO * cosI);
+        double y_ecl = r * (cosU * sinO + sinU * cosO * cosI);
+        double z_ecl = r * sinU * sinI;
 
         // 映射到引擎坐标: 天球 Z(北) → 引擎 Y(上),  天球 Y → 引擎 Z
-        worldPosition = glm::vec3(x_ecl, z_ecl, y_ecl);
+        worldPosition = glm::dvec3(x_ecl, z_ecl, y_ecl);
     }
 
     // 自转
@@ -112,7 +112,7 @@ void Planet::update(double simulationTime) {
         // XZ 面正圆，然后绕 X 轴旋转 axialTilt 使轨道面与行星赤道面对齐
         float cosTilt = cos(m_axialTilt * deg2rad);
         float sinTilt = sin(m_axialTilt * deg2rad);
-        glm::vec3 localPos(
+        glm::dvec3 localPos(
             m.orbitRadius * cos(moonAngle),
             -m.orbitRadius * sin(moonAngle) * sinTilt,
             m.orbitRadius * sin(moonAngle) * cosTilt
@@ -132,19 +132,15 @@ void Planet::addMoon(const std::string& name, float orbitRadius, float orbitPeri
     m.size = size;
     m.color = color;
     m.textureID = textureID;
-    m.worldPosition = worldPosition + glm::vec3(orbitRadius, 0.0f, 0.0f);
+    m.worldPosition = worldPosition + glm::dvec3(orbitRadius, 0.0, 0.0);
     moons.push_back(m);
 }
 
 void Planet::draw(unsigned int shader, unsigned int sphereVAO, int indexCount,
                   const glm::mat4& view, const glm::mat4& viewRot, const glm::mat4& projection,
-                  const glm::vec3& viewPos, float lightIntensity, float sunRadius) {
-    // 相机相对坐标：用 worldPosition - viewPos 避免 float 精度丢失
-    // 当行星世界坐标很大但半径很小时（如卫星），原始 worldPos 的 float
-    // 精度不足以表示 sub-radius 级别的顶点位移
-    // viewPos 在 view 矩阵中已经体现，所以这里用相对坐标构造 model
-    // vertex shader 里 FragPos = model * pos + cameraPos 恢复世界坐标
-    glm::mat4 model = glm::translate(glm::mat4(1.0f), worldPosition - viewPos);
+                  const glm::dvec3& viewPos, float lightIntensity, float sunRadius) {
+    // 相机相对坐标：用 worldPosition - viewPos 在 double 精度下计算偏移
+    glm::mat4 model = glm::translate(glm::mat4(1.0f), glm::vec3(worldPosition - viewPos));
     // 静态轴向倾斜: 极轴从 Y 向 Z 偏转 axialTilt 度 (绕世界 X 轴)
     if (!isSunFlag && m_axialTilt != 0.0f) {
         model = glm::rotate(model, glm::radians(m_axialTilt), glm::vec3(1.0f, 0.0f, 0.0f));
@@ -161,8 +157,6 @@ void Planet::draw(unsigned int shader, unsigned int sphereVAO, int indexCount,
     glUniformMatrix4fv(glGetUniformLocation(shader, "view"), 1, GL_FALSE, glm::value_ptr(view));
     glUniformMatrix4fv(glGetUniformLocation(shader, "viewRot"), 1, GL_FALSE, glm::value_ptr(viewRot));
     glUniformMatrix4fv(glGetUniformLocation(shader, "projection"), 1, GL_FALSE, glm::value_ptr(projection));
-    glUniform3fv(glGetUniformLocation(shader, "cameraPos"), 1, glm::value_ptr(viewPos));
-    glUniform3fv(glGetUniformLocation(shader, "viewPos"), 1, glm::value_ptr(viewPos));
     glUniform1f(glGetUniformLocation(shader, "roughness"), roughness);
     glUniform1f(glGetUniformLocation(shader, "metallic"), metallic);
     glUniform1f(glGetUniformLocation(shader, "lightIntensity"), lightIntensity);
@@ -182,8 +176,8 @@ void Planet::draw(unsigned int shader, unsigned int sphereVAO, int indexCount,
 
 void Planet::drawEmissive(unsigned int shader, unsigned int sphereVAO, int indexCount,
                           const glm::mat4& view, const glm::mat4& viewRot, const glm::mat4& projection,
-                          const glm::vec3& viewPos, float sunIntensity) {
-    glm::mat4 model = glm::translate(glm::mat4(1.0f), worldPosition - viewPos);
+                          const glm::dvec3& viewPos, float sunIntensity) {
+    glm::mat4 model = glm::translate(glm::mat4(1.0f), glm::vec3(worldPosition - viewPos));
     // 太阳自转: 静态轴向倾斜 + 绕局部Y自转
     if (m_axialTilt != 0.0f) {
         model = glm::rotate(model, glm::radians(m_axialTilt), glm::vec3(1.0f, 0.0f, 0.0f));
@@ -197,12 +191,8 @@ void Planet::drawEmissive(unsigned int shader, unsigned int sphereVAO, int index
     glUniformMatrix4fv(glGetUniformLocation(shader, "view"), 1, GL_FALSE, glm::value_ptr(view));
     glUniformMatrix4fv(glGetUniformLocation(shader, "viewRot"), 1, GL_FALSE, glm::value_ptr(viewRot));
     glUniformMatrix4fv(glGetUniformLocation(shader, "projection"), 1, GL_FALSE, glm::value_ptr(projection));
-    glUniform3fv(glGetUniformLocation(shader, "cameraPos"), 1, glm::value_ptr(viewPos));
     glUniform3fv(glGetUniformLocation(shader, "uSunColor"), 1, glm::value_ptr(color));
     glUniform1f(glGetUniformLocation(shader, "uSunIntensity"), sunIntensity);
-    // planet.vert 第21行: FragPos = relPos + cameraPos，已还原世界坐标
-    // 因此 viewPos 必须是世界空间相机坐标，不能是 (0,0,0)
-    glUniform3fv(glGetUniformLocation(shader, "viewPos"), 1, glm::value_ptr(viewPos));
 
     glBindVertexArray(sphereVAO);
     glDrawElements(GL_TRIANGLES, indexCount, GL_UNSIGNED_INT, 0);
@@ -212,7 +202,7 @@ void Planet::drawEmissive(unsigned int shader, unsigned int sphereVAO, int index
 void Planet::drawSimple(unsigned int shader, unsigned int sphereVAO, int indexCount,
                         const glm::mat4& view, const glm::mat4& projection,
                         const glm::vec3& color) {
-    glm::mat4 model = glm::translate(glm::mat4(1.0f), worldPosition);
+    glm::mat4 model = glm::translate(glm::mat4(1.0f), glm::vec3(worldPosition));
     model = glm::scale(model, glm::vec3(size));
 
     glUseProgram(shader);
