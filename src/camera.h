@@ -19,7 +19,8 @@ public:
     void update(float deltaTime);
     void setCollisionBoundaries(const std::vector<CollisionSphere>& spheres, double boundaryFactor = 1.002);
     void clampToBoundary(const std::vector<CollisionSphere>& spheres, double marginFactor = 1.002);
-    glm::mat4 getViewMatrix() const;
+    glm::dmat4 getViewMatrix() const;
+    glm::mat4 getViewMatrixF() const { return glm::mat4(getViewMatrix()); }
     float getFov() const { return fov; }
     glm::dvec3 getPosition() const { return position; }
     glm::vec3 getFront() const { return front; }

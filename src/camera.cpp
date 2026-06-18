@@ -140,10 +140,8 @@ void Camera::processMouseScroll(float yoffset) {
     if (currentSpeed > 1e12f) currentSpeed = 1e12f;
 }
 
-glm::mat4 Camera::getViewMatrix() const {
-    // 将双精度位置转为单精度传递给OpenGL（视图矩阵本身用单精度计算）
-    glm::vec3 posF = glm::vec3(position);
-    return glm::lookAt(posF, posF + front, up);
+glm::dmat4 Camera::getViewMatrix() const {
+    return glm::lookAt(position, position + glm::dvec3(front), glm::dvec3(up));
 }
 
 void Camera::clampToBoundary(const std::vector<CollisionSphere>& spheres, double marginFactor) {
