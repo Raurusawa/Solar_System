@@ -191,15 +191,20 @@ solar/
 
 ## 配置说明
 
-编辑根目录下的 `config.ini` 可自定义所有参数，无需重新编译：
+编辑根目录下的 `config.ini` 可自定义所有参数，无需重新编译。
+
+> **⚠️ 注意：纹理路径是相对于工作目录（working directory）的，不是相对于 `config.ini` 文件位置的。**
+> 启动程序时，请确保工作目录为 `solar/` 根目录，或者将 `config.ini` 中的纹理路径改为绝对路径。
+> 例如从 `textures/sun.jpg` 改为 `C:/Users/yourname/Desktop/solar/textures/sun.jpg`。
 
 ```ini
 [window]
-window.width  = 1920
-window.height = 1080
+window.width       = 1920
+window.height      = 1080
+window.fullscreen  = 0
 
 [simulation]
-simulation.timeScale = 1.0   ; 1.0 = 真实速度（行星按实际天文学周期运行）
+simulation.timeScale = 1.0   ; 1.0 = 真实速度
 
 [settings]
 bloom        = 1
